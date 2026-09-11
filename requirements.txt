@@ -1,0 +1,7 @@
+streamlit
+tensorflow-cpu
+pillow
+numpy
+opencv-python-headless
+requests
+gradheatmap
