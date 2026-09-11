@@ -4,3 +4,5 @@ pillow
 numpy
 opencv-python-headless
 requests
+huggingface_hub
+tf-keras
