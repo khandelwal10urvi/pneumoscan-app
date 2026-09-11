@@ -3,10 +3,9 @@ import tensorflow as tf
 from PIL import Image
 import numpy as np
 import requests
-from io import BytesIO
 import os
 
-# Page configuration — wide layout, professional icon
+# --- Page configuration ---
 st.set_page_config(
     page_title="PneumoScan | AI Pneumonia Detection",
     page_icon="🫁",
@@ -17,12 +16,10 @@ st.set_page_config(
 # --- Custom CSS for professional polish ---
 st.markdown("""
 <style>
-    /* Hide default Streamlit header/footer for cleaner look */
     header { visibility: hidden; }
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
-    
-    /* Professional card-style containers */
+
     .result-card {
         padding: 1.5rem;
         border-radius: 0.75rem;
@@ -30,15 +27,13 @@ st.markdown("""
         background: white;
         margin-bottom: 1rem;
     }
-    
-    /* Better metric display */
+
     .metric-value {
         font-size: 2rem;
         font-weight: 700;
         color: #0EA5E9;
     }
-    
-    /* Hospital list styling */
+
     .hospital-item {
         padding: 0.75rem;
         border-left: 3px solid #0EA5E9;
@@ -57,39 +52,35 @@ def load_model():
 
 # --- Grad-CAM heatmap generation ---
 def generate_heatmap(model, img_array):
-    try:
-        from gradheatmap import HeatMap
-        # gradheatmap auto-detects backbone and conv layer
-        # We'll use the manual Grad-CAM approach for reliability
-    except ImportError:
-        pass
-    
-    # Manual Grad-CAM (works with your MobileNetV2 model)
     # Find the last convolutional layer
     last_conv_layer = None
     for layer in reversed(model.layers):
-        if 'conv' in layer.name.lower() or 'Conv' in str(type(layer)):
+        if 'conv' in layer.name.lower():
             last_conv_layer = layer.name
             break
-    
+
     if last_conv_layer is None:
-        # Fallback for MobileNetV2 inside Sequential
+        # Fallback for nested models (e.g., MobileNetV2 inside Sequential)
         for layer in reversed(model.layers):
             if hasattr(layer, 'layers'):
                 for sublayer in reversed(layer.layers):
                     if 'conv' in sublayer.name.lower():
                         last_conv_layer = layer.name
                         break
-    
+
+    if last_conv_layer is None:
+        # If no conv layer found, return a blank heatmap
+        return np.zeros((7, 7))
+
     grad_model = tf.keras.models.Model(
         inputs=model.inputs,
         outputs=[model.get_layer(last_conv_layer).output, model.output]
     )
-    
+
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_array)
         loss = predictions[:, 0]
-    
+
     grads = tape.gradient(loss, conv_outputs)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
     conv_outputs = conv_outputs[0]
@@ -150,59 +141,60 @@ with col1:
         label_visibility="collapsed"
     )
 
+show_hospitals = False
+
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    
+
     with col1:
         st.image(image, caption="Uploaded X-Ray", use_container_width=True)
-    
+
     with col2:
         st.subheader("AI Analysis")
-        
+
         with st.spinner("Analyzing image..."):
             model = load_model()
-            
+
             # Preprocess
             img_resized = image.resize((224, 224))
             img_array = np.array(img_resized) / 255.0
             img_array = np.expand_dims(img_array, axis=0)
-            
+
             # Predict
             prediction = float(model.predict(img_array, verbose=0)[0][0])
-            
+
             # Generate heatmap
             heatmap = generate_heatmap(model, img_array)
             overlayed = overlay_heatmap(image, heatmap)
-        
+
         # Results
         if prediction > 0.5:
-            st.error(f"### ⚠️ Pneumonia Detected")
+            st.error("### ⚠️ Pneumonia Detected")
             st.metric("Confidence", f"{prediction:.1%}")
             st.warning("Please consult a healthcare professional. AI results are for screening only.")
             show_hospitals = True
         else:
-            st.success(f"### ✅ No Pneumonia Detected")
+            st.success("### ✅ No Pneumonia Detected")
             st.metric("Confidence", f"{1-prediction:.1%}")
             st.info("Result appears normal. If symptoms persist, follow medical advice.")
             show_hospitals = False
-        
+
         # Show Grad-CAM
         st.subheader("Model Attention (Grad-CAM)")
         st.image(overlayed, caption="Red areas indicate regions the model focused on", use_container_width=True)
 
 # Hospital search section
-if 'show_hospitals' in dir() and show_hospitals:
+if show_hospitals:
     st.divider()
     st.subheader("🏥 Nearby Healthcare Facilities")
     st.caption(f"Showing hospitals within {radius}km of your location")
-    
+
     with st.spinner("Searching nearby hospitals..."):
         hospitals = search_nearby_hospitals(lat, lng, radius)
-    
+
     if hospitals:
         for h in hospitals[:5]:
             name = h.get('display_name', 'Unknown facility')
-            # Shorten display name
             short_name = name.split(',')[0] if ',' in name else name
             st.markdown(f"""
             <div class="hospital-item">
