@@ -4,4 +4,3 @@ pillow
 numpy
 opencv-python-headless
 requests
-gradheatmap
